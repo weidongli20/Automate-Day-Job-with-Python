@@ -6,8 +6,8 @@ import csv
 from pathlib import Path
 
 # @TODO: Set file paths for menu_data.csv and sales_data.csv
-menu_filepath = Path("./Resources/menu_data.csv")
-sales_filepath = Path("./Resources/sales_data.csv")
+menu_filepath = Path('.')/'Resources'/'menu_data.csv'
+sales_filepath = Path('.')/'Resources'/'sales_data.csv'
 
 # @TODO: Initialize list objects to hold our menu and sales data
 menu = []
@@ -39,7 +39,7 @@ for sales_row in sales:
     line_item_ID = sales_row[0]
     date = sales_row[1]
     credit_card_Number = sales_row[2]
-    quantity= int(sales_row[3])
+    quantity= sales_row[3]
     item = sales_row[4]
 
     # @TODO:
@@ -56,14 +56,14 @@ for sales_row in sales:
 
 
     # @TODO: For every row in our sales data, loop over the menu records to determine a match
-    for menu_row in menu:
+     for menu_row in menu:
         # Item,Category,Description,Price,Cost
         # @TODO: Initialize menu data variables
         menu_item = menu_row[0]
         category = menu_row[1]
         description = menu_row[2]
-        price = float(menu_row[3])
-        cost = float(menu_row[4])
+        price = menu_row[3]
+        cost = menu_row[4]
 
         # @TODO: Calculate profit of each item in the menu data
         profit = price - cost
@@ -92,18 +92,12 @@ print(f"Total number of records in sales data:{row_count}")
 
 # @TODO: Write out report to a text file (won't appear on the command line output)
 output_path = Path('output.csv')
-header = ["item", "01-count", "02-revenue", "03-cogs", "04-profit"]
+header = ["01-count", "02-revenue", "03-cogs", "04-profit"]
 
 with open(output_path, 'w') as csvfile:
     csvwriter = csv.writer(csvfile, delimiter=',')
     # Write the header to the output file
     csvwriter.writerow(header)
-    for item, row in report.items():
-        metrics = [
-            item,
-            row["01-count"], 
-            row["02-revenue"], 
-            row["03-cogs"], 
-            row["04-profit"],
-        ]
-        csvwriter.writerow(metrics)
+    for row in report:
+        metrics = [row["01-count"], row["02-revenue"], row["03-cogs"], row["04-profit"]]
+        writer.writerow(metrics)
