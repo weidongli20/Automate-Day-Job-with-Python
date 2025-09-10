@@ -1,0 +1,83 @@
+
+# pip install openai faiss-cpu langchain
+
+from openai import OpenAI
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import numpy as np
+import faiss
+import sys
+
+client = OpenAI()
+
+def load_markdown(md_path):
+    """Load Markdown file as raw text."""
+    with open(md_path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def chunk_text(text, chunk_size=800, overlap=100):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=overlap
+    )
+    return splitter.split_text(text)
+
+def embed_chunks(chunks, model="text-embedding-3-small"):
+    embeddings = [
+        client.embeddings.create(model=model, input=chunk).data[0].embedding
+        for chunk in chunks
+    ]
+    return np.array(embeddings, dtype="float32")
+
+def build_faiss_index(embeddings):
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(embeddings)
+    return index
+
+def retrieve(query, index, chunks, k=3, model="text-embedding-3-small"):
+    q_emb = client.embeddings.create(model=model, input=query).data[0].embedding
+    D, I = index.search(np.array([q_emb], dtype="float32"), k)
+    return [chunks[i] for i in I[0]]
+
+def answer_question(query, retrieved_chunks):
+    context = "\n\n".join(retrieved_chunks)
+    prompt = f"""
+Use the following context to answer the question:
+
+Context:
+{context}
+
+Question: {query}
+Answer:
+"""
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python rag_md.py my_doc.md")
+        sys.exit(1)
+
+    md_path = sys.argv[1]
+    print(f"Loading Markdown: {md_path}")
+    text = load_markdown(md_path)
+
+    print("Splitting text into chunks...")
+    chunks = chunk_text(text)
+    print(f"Created {len(chunks)} chunks")
+
+    print("Embedding chunks...")
+    embeddings = embed_chunks(chunks)
+
+    print("Building FAISS index...")
+    index = build_faiss_index(embeddings)
+
+    while True:
+        query = input("\nAsk a question (or 'exit'): ")
+        if query.lower() == "exit":
+            break
+        retrieved = retrieve(query, index, chunks)
+        answer = answer_question(query, retrieved)
+        print("\n🤖 Answer:", answer)
