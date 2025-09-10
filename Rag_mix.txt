@@ -1,0 +1,122 @@
+
+# pip install openai pypdf faiss-cpu langchain
+
+from openai import OpenAI
+from PyPDF2 import PdfReader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+import numpy as np
+import faiss
+import sys, os
+
+client = OpenAI()
+
+# ---------- Loaders ----------
+def load_pdf(path):
+    reader = PdfReader(path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+    return text
+
+def load_markdown(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_documents(folder_path):
+    """Load all .md and .pdf files in a folder."""
+    docs = []
+    for fname in os.listdir(folder_path):
+        if fname.endswith(".md"):
+            text = load_markdown(os.path.join(folder_path, fname))
+            docs.append((fname, text, "[MD]"))
+        elif fname.endswith(".pdf"):
+            text = load_pdf(os.path.join(folder_path, fname))
+            docs.append((fname, text, "[PDF]"))
+    return docs
+
+# ---------- Chunking ----------
+def chunk_docs(docs, chunk_size=800, overlap=100):
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=overlap
+    )
+    chunks, sources = [], []
+    for fname, text, ftype in docs:
+        parts = splitter.split_text(text)
+        for part in parts:
+            chunks.append(part)
+            sources.append(f"{ftype} {fname}")
+    return chunks, sources
+
+# ---------- Embeddings ----------
+def embed_chunks(chunks, model="text-embedding-3-small"):
+    embeddings = [
+        client.embeddings.create(model=model, input=chunk).data[0].embedding
+        for chunk in chunks
+    ]
+    return np.array(embeddings, dtype="float32")
+
+def build_faiss_index(embeddings):
+    dim = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dim)
+    index.add(embeddings)
+    return index
+
+# ---------- Retrieval + Answer ----------
+def retrieve(query, index, chunks, sources, k=3, model="text-embedding-3-small"):
+    q_emb = client.embeddings.create(model=model, input=query).data[0].embedding
+    D, I = index.search(np.array([q_emb], dtype="float32"), k)
+    return [(chunks[i], sources[i]) for i in I[0]]
+
+def answer_question(query, retrieved):
+    context = "\n\n".join(
+        [f"From {src}:\n{chunk}" for chunk, src in retrieved]
+    )
+    prompt = f"""
+Use the following context to answer the question:
+
+Context:
+{context}
+
+Question: {query}
+Answer:
+"""
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+# ---------- Main ----------
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python rag_mixed_labeled.py path_to_folder")
+        sys.exit(1)
+
+    folder_path = sys.argv[1]
+    print(f"Loading documents from: {folder_path}")
+    docs = load_documents(folder_path)
+
+    if not docs:
+        print("⚠️ No .md or .pdf files found.")
+        sys.exit(1)
+
+    print(f"Loaded {len(docs)} documents")
+    chunks, sources = chunk_docs(docs)
+    print(f"Created {len(chunks)} chunks")
+
+    print("Embedding chunks...")
+    embeddings = embed_chunks(chunks)
+
+    print("Building FAISS index...")
+    index = build_faiss_index(embeddings)
+
+    while True:
+        query = input("\nAsk a question (or 'exit'): ")
+        if query.lower() == "exit":
+            break
+        retrieved = retrieve(query, index, chunks, sources)
+        answer = answer_question(query, retrieved)
+        print("\n🤖 Answer:", answer)
+        print("\n📚 Sources:")
+        for _, src in retrieved:
+            print(f"- {src}")
