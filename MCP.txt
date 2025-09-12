@@ -1,0 +1,43 @@
+
+# chat_tools.py
+import os
+import requests
+from mcp.server.fastmcp import FastMCP
+
+mcp = FastMCP("Chatbot API Wrapper")
+
+@mcp.tool()
+def chatbot_api(message: str) -> str:
+    """Call external chatbot API and return reply"""
+    resp = requests.post(
+        "https://api.openai.com/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {os.environ.get('OPENAI_API_KEY')}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "gpt-4o-mini",
+            "messages": [{"role": "user", "content": message}],
+        },
+    )
+    data = resp.json()
+    return (
+        data.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "No reply")
+    )
+
+# fastapi_app.py
+from fastapi import FastAPI
+from pydantic import BaseModel
+from chat_tools import chatbot_api  # import the tool directly
+
+app = FastAPI()
+
+class ChatRequest(BaseModel):
+    message: str
+
+@app.post("/chat")
+def chat(request: ChatRequest):
+    reply = chatbot_api(request.message)  # call the tool directly
+    return {"reply": reply}
